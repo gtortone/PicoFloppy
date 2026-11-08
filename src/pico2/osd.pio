@@ -1,0 +1,82 @@
+;
+; pico2/osd.pio
+;
+; FF OSD (on-screen display) engine for the RP2350 (PIO1), see pico2/osd.c
+; and pico2/osd_amikbd.c. clk_sys is 144MHz.
+;
+; The video sync input is normalised so that 0 = sync pulse: for an
+; active-high sync the GPIO input is inverted (gpio_set_inover), which
+; every state machine below sees.
+;
+; This is free and unencumbered software released into the public domain.
+; See the file COPYING for more details, or visit <http://unlicense.org>.
+;
+
+;
+; Sync pulse measurement. in_base = jmp_pin = CSYNC. At the end of every
+; sync pulse, pushes its length in loop iterations (two PIO cycles each).
+; Core 1 tells normal (hsync, equalising) from broad (vsync) pulses by it.
+;
+.program osd_sync
+.wrap_target
+    wait 1 pin 0            ; outside a pulse
+    wait 0 pin 0            ; sync pulse starts
+    mov x, ~null
+count:
+    jmp pin done            ; sync has ended
+    jmp x-- count
+done:
+    mov isr, ~x             ; iterations
+    push noblock
+.wrap
+
+;
+; Video output. in_base = CSYNC; set_base = out_base = the video pin.
+; Fed by DMA, autopull (32-bit, shift left: MSB first). One frame:
+;   nskip                   sync pulses to let pass before the first line
+;   then for every line:
+;     hdelay                cycles from end of sync to start of the box
+;     npix-1                box width in pixels (multiple of 32)
+;     npix/32 pixel words
+; Each line waits for its own sync pulse, so lines track the incoming
+; video however late the data arrives. Pixels are 16 cycles (9MHz, as on
+; the STM32 FF OSD). Outside the box the pin floats, leaving the host's
+; video untouched; inside it, 0 pixels drive black and 1 pixels white.
+;
+.program osd_video
+    out x, 32               ; nskip
+    jmp skip_test
+skip:
+    wait 0 pin 0
+    wait 1 pin 0
+skip_test:
+    jmp x-- skip
+.wrap_target
+    out x, 32               ; hdelay
+    out y, 32               ; npix-1
+    wait 0 pin 0            ; this line's sync pulse...
+    wait 1 pin 0            ; ...and its trailing edge
+delay:
+    jmp x-- delay
+    set pindirs, 1          ; box starts
+pixel:
+    out pins, 1 [14]
+    jmp y-- pixel
+    set pindirs, 0          ; box ends: release the video line
+.wrap
+
+;
+; Amiga keyboard bit sampler. in_base = KB_DATA, with KB_CLOCK the next
+; pin; jmp_pin = KB_CLOCK. Run at 36MHz: a falling clock edge must hold
+; for ~0.9us (a glitch filter, like the STM32 timer input filter), then
+; the data line is sampled and pushed.
+;
+.program osd_amikbd
+.wrap_target
+falling:
+    wait 0 pin 1 [31]       ; clock falls, and settles
+    jmp pin falling         ; back high already: a glitch
+    in pins, 1              ; sample KB_DATA
+    push noblock
+    wait 1 pin 1            ; clock rises
+.wrap

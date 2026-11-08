@@ -1,0 +1,60 @@
+/*
+ * display.c
+ * 
+ * Autodetect and set up the display peripheral.
+ * 
+ * Written & released by Keir Fraser <keir.xen@gmail.com>
+ * 
+ * This is free and unencumbered software released into the public domain.
+ * See the file COPYING for more details, or visit <http://unlicense.org>.
+ */
+
+uint8_t display_type;
+
+void display_init(void)
+{
+    char name[20];
+    int probe_ms = ff_cfg.display_probe_ms;
+
+    display_type = DT_NONE;
+    snprintf(name, sizeof(name), "None");
+
+    for (;;) {
+
+        stk_time_t t = stk_now();
+
+        if (lcd_init()) {
+            display_type = DT_LCD_OLED;
+            snprintf(name, sizeof(name), "LCD/OLED");
+            break; /* positive identification */
+        }
+
+        if ((ff_cfg.display_type & 3) == DISPLAY_auto) {
+            led_7seg_init();
+            display_type = DT_LED_7SEG;
+            snprintf(name, sizeof(name), "%u-Digit LED",
+                     led_7seg_nr_digits());
+            if (led_7seg_nr_digits() == 3)
+                break; /* positive identification */
+        }
+
+        if (probe_ms <= 0)
+            break; /* probe timeout */
+
+        /* Wait 100ms between probes. */
+        delay_ms(100);
+        probe_ms -= stk_diff(t, stk_now()) / stk_ms(1);
+
+    }
+
+    /* Nothing positively identified (a 2-digit LED display cannot be):
+     * the built-in FF OSD is the display. */
+    if ((display_type != DT_LCD_OLED)
+        && !((display_type == DT_LED_7SEG) && (led_7seg_nr_digits() == 3))
+        && lcd_init_osd_only()) {
+        display_type = DT_LCD_OLED;
+        snprintf(name, sizeof(name), "FF OSD only");
+    }
+
+    printk("Display: %s\n\n", name);
+}

@@ -1,0 +1,48 @@
+on:
+  push:
+    tags:
+    - 'v*.*'
+
+name: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - name: Set environment variables
+      id: vars
+      run: |
+        echo "ver=$(echo ${{ github.ref }} | sed -e's#.*/v##')" >> $GITHUB_OUTPUT
+
+    - name: Dependency packages (apt)
+      run: |
+        sudo apt update
+        sudo apt -y install git cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib build-essential python3 zip unzip wget
+
+    - name: pico-sdk
+      run: |
+        git clone --depth 1 -b 2.2.0 https://github.com/raspberrypi/pico-sdk ../pico-sdk
+        git -C ../pico-sdk submodule update --init --depth 1 lib/tinyusb
+
+    - name: Build release
+      run: |
+        export PICO_SDK_PATH=$(realpath ../pico-sdk)
+        export VER=${{ steps.vars.outputs.ver }}
+        make dist VER=$VER
+        mv out/FlashFloppy_Pico2-$VER.zip .
+
+    - name: Create Release
+      id: create_release
+      uses: ncipollo/release-action@v1
+      with:
+        tag: ${{ github.ref }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        name: FlashFloppy for Pico 2 ${{ steps.vars.outputs.ver }}
+        body: "See [RP2350.md](RP2350.md) for wiring and usage."
+        draft: false
+        prerelease: false
+        artifacts: FlashFloppy_Pico2-${{ steps.vars.outputs.ver }}.zip
+        artifactContentType: application/zip

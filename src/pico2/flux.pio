@@ -1,0 +1,46 @@
+;
+; pico2/flux.pio
+;
+; FlashFloppy flux engine for the RP2350 (PIO0). clk_sys is 144MHz and the
+; state machines run undivided: two PIO cycles per 72MHz SAMPLECLK tick,
+; the tick used by the STM32 firmware and by all image decoding.
+;
+; This is free and unencumbered software released into the public domain.
+; See the file COPYING for more details, or visit <http://unlicense.org>.
+;
+
+;
+; RDATA generator. DMA feeds 16-bit flux intervals into the TX FIFO
+; (autopull, 16-bit threshold, shift right). Each interval emits a fixed
+; 56-cycle (389ns) active-low pulse, then counts out the remainder.
+; Period = 60 + 2*X cycles = (30 + X) ticks: the producer biases entries
+; by FLUX_LEAD (pico2/floppy.c) to match the STM32 (ARR+1) encoding.
+;
+.program flux_rdata
+.wrap_target
+    out x, 16               ; next interval (stalls if the FIFO is dry)
+    set pins, 0 [31]        ; assert RDATA (drive low)...
+    nop [23]                ; ...for 56 cycles in all
+    set pins, 1             ; deassert (drive high: push-pull)
+burn:
+    jmp x-- burn [1]        ; 2 cycles per remaining tick
+.wrap
+
+;
+; WDATA capture. X is a free-running down-counter, decremented every two
+; cycles (one SAMPLECLK tick); its complement is pushed to the RX FIFO at
+; each falling edge of WDATA, where DMA collects it. This mimics an STM32
+; timer input-capture channel. JMP_PIN is WDATA.
+;
+.program flux_wdata
+    mov x, ~null            ; init
+high:
+    jmp x-- high_test       ; \ 2-cycle count loop
+high_test:
+    jmp pin high            ; / while WDATA high
+    mov isr, ~x             ; falling edge: timestamp (up-count)
+    push noblock
+low:
+    jmp pin high            ; \ 2-cycle count loop
+    jmp x-- low             ; / while WDATA low
+    jmp low                 ; (X wrap fall-through)
