@@ -22,20 +22,13 @@ jobs:
         git clone --depth 1 -b 2.2.0 https://github.com/raspberrypi/pico-sdk ../pico-sdk
         git -C ../pico-sdk submodule update --init --depth 1 lib/tinyusb
 
-    - name: Build dist
+    - name: Build (prod, debug, logfile) and package
       run: |
         export PICO_SDK_PATH=$(realpath ../pico-sdk)
-        export VER=${{ steps.vars.outputs.sha_short }}
-        make dist VER=$VER
-        mkdir -p _cidist
-        mv out/FlashFloppy_Pico2-$VER .
-        rm FlashFloppy_Pico2-$VER/RELEASE_NOTES
-        git rev-parse HEAD >FlashFloppy_Pico2-$VER/COMMIT
-        zip -r FlashFloppy_Pico2-$VER.zip FlashFloppy_Pico2-$VER
-        mv FlashFloppy_Pico2-$VER.zip _cidist/
+        scripts/mk_dist.sh ${{ steps.vars.outputs.sha_short }}
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: FlashFloppy_Pico2.CI.${{ steps.vars.outputs.sha_short }}
-        path: _cidist
+        name: PicoFloppy.CI.${{ steps.vars.outputs.sha_short }}
+        path: dist/PicoFloppy-${{ steps.vars.outputs.sha_short }}.zip

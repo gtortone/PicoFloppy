@@ -120,26 +120,90 @@ is the display.
 
 ## Building
 
-You need the Arm GNU toolchain, CMake 3.13+, Python 3, a host C++ compiler,
-and pico-sdk 2.2.0 or later with its TinyUSB submodule:
+You need the Arm GNU toolchain (`arm-none-eabi-gcc` with newlib), CMake
+3.13+, Python 3, git 2.35+, a host C++ compiler (the SDK builds `pioasm`
+and `picotool`), and pico-sdk 2.2.0 or later with its TinyUSB submodule:
 
 ```
 git clone -b 2.2.0 https://github.com/raspberrypi/pico-sdk
 git -C pico-sdk submodule update --init lib/tinyusb
 export PICO_SDK_PATH=$PWD/pico-sdk
-
-make            # production build: out/prod/target.uf2
-make debug      # with the USB serial console
-make all        # prod, debug and logfile
-make dist       # release zip: out/PicoFloppy-<ver>.zip
 ```
 
-To flash, hold BOOTSEL while plugging the Pico 2 into USB, then copy
-`target.uf2` to the `RP2350` drive.
+Then, from the PicoFloppy tree:
 
-**[RP2350.md](RP2350.md)** has the full details: how the flux engine and the
-OSD work, wiring notes, displays, the internal-flash image store, the USB
-console and limitations.
+```
+cmake -B build                      # production build (FF_LEVEL=prod)
+cmake --build build -j              # -> build/picofloppy.uf2 (.elf, .bin)
+
+cmake -B build-debug -DFF_LEVEL=debug
+cmake --build build-debug -j        # with the USB serial console
+```
+
+Each build level goes in its own build directory. CMake options:
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `FF_LEVEL` | `prod` | `prod`, `debug` (USB serial console) or `logfile` (in-RAM log) |
+| `FF_FW_VER` | short git hash | Firmware version shown at boot |
+| `U8G2_GIT_TAG` | `2.37.1` | u8g2 release to fetch |
+| `U8G2_SOURCE_DIR` | (empty) | Use this u8g2 checkout instead of fetching it (offline builds) |
+
+The [u8g2](https://github.com/olikraus/u8g2) library is not part of this
+repository: on the first configure, CMake fetches the files it needs from
+git (a shallow, sparse clone of about 1.5MB), so network access is needed
+once per build directory.
+
+`scripts/mk_dist.sh [version]` builds all three levels and packages them,
+with the HxC compatibility files, helper scripts and licenses, as
+`dist/PicoFloppy-<version>.zip`. The CI workflow runs it on every push,
+and the release workflow on every `v*.*` tag (`.github/workflows`).
+
+## Flashing
+
+Hold BOOTSEL while plugging the Pico 2 into USB, then copy
+`picofloppy.uf2` to the `RP2350` drive, or use
+`picotool load -x build/picofloppy.uf2`. There is no FlashFloppy
+bootloader: firmware updates always go through BOOTSEL, which can also be
+reached from the main menu (*Update Firmware*) or over USB (below).
+
+## USB serial console
+
+The Pico 2's own USB socket is a USB CDC serial port (`/dev/ttyACM0` on
+Linux). Debug builds write their log to it; output from before a terminal
+is opened is kept (4kB) and sent when it is. The line rate is ignored.
+
+**Opening the port at 1200 baud and closing it again reboots the board
+into BOOTSEL**, as on Arduino boards, ready for a new UF2:
+
+```
+stty -F /dev/ttyACM0 1200
+```
+
+## Disk images in the internal flash
+
+With no microSD card, the firmware uses a FAT volume in the Pico's own
+flash, from 1MB to 4MB. Build one from a directory of disk images and
+install it from BOOTSEL:
+
+```
+python3 scripts/mk_fat.py my_disks/ fs.uf2   # also writes fs.bin
+picotool load -o 0x10100000 fs.bin           # or copy fs.uf2 to RP2350
+```
+
+The firmware and the image store are flashed independently. The volume is
+writable (host writes, `IMAGE_A.CFG`, the eject menu), but QSPI flash
+endures about 100k erase cycles per block. An SD card is probed only at
+boot.
+
+## Limitations
+
+- Shugart/PC interface only (no Apple II or QuickDisk firmware); no USB
+  stick storage.
+- No speaker, JC jumper or UART console: their pins went to the OSD.
+- The FF OSD supports 15kHz (PAL/NTSC) video only, and has none of the FF
+  OSD board's user output pins (F1-F10 hotkeys).
+- The `chgrst=pa14` option is not supported; use `chgrst=step` or a delay.
 
 For using the emulator itself (image formats, `FF.CFG`, host
 compatibility, navigation modes), see the
@@ -185,11 +249,12 @@ PicoFloppy stands on other people's work:
 
 ## License
 
-Most of the code is public domain ([Unlicense](https://unlicense.org)), as
-FlashFloppy and FF OSD are. FatFs (`src/fatfs/`) and u8g2 (`lib/u8g2/`)
-keep their own BSD-style licenses. The pico-sdk (BSD-3-Clause) and TinyUSB
-(MIT) are linked into the firmware. See [COPYING](COPYING).
+PicoFloppy is released under the [MIT License](LICENSE).
 
-The source and binaries are freely redistributable in any form. Because the
-firmware includes third-party code, include or link to the
-[COPYING](COPYING) file in any redistribution.
+It is built on code that its authors placed in the public domain
+([Unlicense](https://unlicense.org)): FlashFloppy and FF OSD, by Keir
+Fraser. The third-party code keeps its own license: FatFs (`src/fatfs/`,
+BSD-style, notice in the source), u8g2 (BSD-2-Clause, fetched at build
+time), the pico-sdk (BSD-3-Clause) and TinyUSB (MIT). The release zip
+carries their license texts in `licenses/`; include them with any binary
+redistribution.

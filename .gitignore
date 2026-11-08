@@ -3,7 +3,8 @@
 *.rej
 /out
 /ext
-/build
+/build*
+/dist
 __pycache__/
 #disk images for the internal-flash image store
 data

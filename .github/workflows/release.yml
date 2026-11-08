@@ -8,6 +8,8 @@ name: Release
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
 
     - uses: actions/checkout@v4
@@ -27,22 +29,19 @@ jobs:
         git clone --depth 1 -b 2.2.0 https://github.com/raspberrypi/pico-sdk ../pico-sdk
         git -C ../pico-sdk submodule update --init --depth 1 lib/tinyusb
 
-    - name: Build release
+    - name: Build (prod, debug, logfile) and package
       run: |
         export PICO_SDK_PATH=$(realpath ../pico-sdk)
-        export VER=${{ steps.vars.outputs.ver }}
-        make dist VER=$VER
-        mv out/FlashFloppy_Pico2-$VER.zip .
+        scripts/mk_dist.sh ${{ steps.vars.outputs.ver }}
 
     - name: Create Release
-      id: create_release
       uses: ncipollo/release-action@v1
       with:
         tag: ${{ github.ref }}
         token: ${{ secrets.GITHUB_TOKEN }}
-        name: FlashFloppy for Pico 2 ${{ steps.vars.outputs.ver }}
-        body: "See [RP2350.md](RP2350.md) for wiring and usage."
+        name: PicoFloppy ${{ steps.vars.outputs.ver }}
+        body: "See [README.md](README.md) for wiring and usage."
         draft: false
         prerelease: false
-        artifacts: FlashFloppy_Pico2-${{ steps.vars.outputs.ver }}.zip
+        artifacts: dist/PicoFloppy-${{ steps.vars.outputs.ver }}.zip
         artifactContentType: application/zip

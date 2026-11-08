@@ -3,7 +3,7 @@
  *
  * 1. HD44780 LCD controller via a PCF8574 I2C backpack.
  * 2. SSD1306/SH1106 OLED controllers (128x32 or 128x64), through the u8g2
- *    graphics library (lib/u8g2).
+ *    graphics library (fetched at build time, see CMakeLists.txt).
  *
  * RP2350 back end: I2C0 on GPIO20 (SDA) / GPIO21 (SCL), with DMA-fed
  * transmit, via the pico-sdk. The SDK has no asynchronous I2C API, so the
@@ -44,7 +44,7 @@
 #define CMD_SETDDRADDR   0x80
 #define FS_2LINE         0x08
 
-/* u8g2 (lib/u8g2): written for a laxer warning set than FlashFloppy's, and
+/* u8g2: written for a laxer warning set than FlashFloppy's, and
  * spells out attributes that FlashFloppy defines as macros (intrinsics.h). */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-prototypes"

@@ -6,8 +6,9 @@
 #   cmake -B build -DPICO_SDK_PATH=/path/to/pico-sdk [-DFF_LEVEL=debug]
 #   cmake --build build
 #
-# FF_LEVEL is one of prod (default), debug or logfile, as for the Makefile
-# builds. The result is build/picofloppy.uf2 (and .elf/.bin).
+# FF_LEVEL is one of prod (default), debug or logfile. The result is
+# build/picofloppy.uf2 (and .elf/.bin). scripts/mk_dist.sh builds all three
+# levels into a release zip.
 #
 # This is free and unencumbered software released into the public domain.
 # See the file COPYING for more details, or visit <http://unlicense.org>.
@@ -36,13 +37,16 @@ endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-# Firmware version: short git hash, as the Makefile does.
-execute_process(
-    COMMAND git rev-parse --short HEAD
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE FF_FW_VER
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
+# Firmware version, as shown at boot: -DFF_FW_VER=... (release builds pass
+# the release version), else the short git hash.
+if(NOT FF_FW_VER)
+    execute_process(
+        COMMAND git rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE FF_FW_VER
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
 if(NOT FF_FW_VER)
     set(FF_FW_VER "unknown")
 endif()
@@ -127,12 +131,75 @@ set(SDK_SOURCES
 
 add_executable(picofloppy ${FF_SOURCES} ${SDK_SOURCES})
 
-# u8g2 graphics library (OLED displays): the subset vendored in lib/u8g2,
-# see scripts/update_u8g2.sh. Built with the SDK's flags, not FlashFloppy's.
-file(GLOB U8G2_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/lib/u8g2/csrc/*.c)
+# u8g2 graphics library (OLED displays), fetched from git at configure time
+# (https://github.com/olikraus/u8g2, pinned to a release tag). Only the files
+# the firmware uses are checked out: a shallow, sparse, blob-less clone of
+# about 1.5MB rather than the whole 400MB repository (mostly fonts; the
+# firmware brings its own, see src/display/oled_fonts.c). For an offline
+# build, point U8G2_SOURCE_DIR at an existing u8g2 checkout.
+#
+# To support another display controller, add its u8x8_d_*.c file to
+# U8G2_FILES. Built with the SDK's flags, not FlashFloppy's.
+set(U8G2_GIT_URL https://github.com/olikraus/u8g2.git CACHE STRING
+    "u8g2 git repository")
+set(U8G2_GIT_TAG 2.37.1 CACHE STRING "u8g2 release (git tag)")
+set(U8G2_SOURCE_DIR "" CACHE PATH
+    "Existing u8g2 checkout to build from, instead of fetching it")
+set(U8G2_FILES
+    u8g2_arc.c u8g2_bitmap.c u8g2_box.c u8g2_buffer.c u8g2_circle.c
+    u8g2_cleardisplay.c u8g2_font.c u8g2_hvline.c u8g2_intersection.c
+    u8g2_kerning.c u8g2_line.c u8g2_ll_hvline.c u8g2_polygon.c u8g2_setup.c
+    u8x8_8x8.c u8x8_byte.c u8x8_cad.c u8x8_capture.c u8x8_display.c
+    u8x8_gpio.c u8x8_setup.c u8x8_string.c u8x8_u16toa.c u8x8_u8toa.c
+    # Display drivers: SSD1306 and SH1106, 128x64 and 128x32.
+    u8x8_d_ssd1306_128x64_noname.c
+    u8x8_d_ssd1306_128x32.c)
+
+if(U8G2_SOURCE_DIR)
+    set(U8G2_DIR ${U8G2_SOURCE_DIR})
+else()
+    find_package(Git REQUIRED)
+    set(U8G2_DIR ${CMAKE_BINARY_DIR}/_deps/u8g2)
+    set(U8G2_STAMP ${U8G2_DIR}/.picofloppy-${U8G2_GIT_TAG})
+    if(NOT EXISTS ${U8G2_STAMP})
+        message(STATUS "Fetching u8g2 ${U8G2_GIT_TAG} from ${U8G2_GIT_URL}")
+        file(REMOVE_RECURSE ${U8G2_DIR})
+        set(U8G2_PATTERNS /LICENSE /csrc/u8g2.h /csrc/u8x8.h)
+        foreach(f ${U8G2_FILES})
+            list(APPEND U8G2_PATTERNS /csrc/${f})
+        endforeach()
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} clone --quiet --depth 1
+                    --branch ${U8G2_GIT_TAG} --filter=blob:none --no-checkout
+                    ${U8G2_GIT_URL} ${U8G2_DIR}
+            RESULT_VARIABLE rc)
+        if(rc EQUAL 0)
+            execute_process(
+                COMMAND ${GIT_EXECUTABLE} -C ${U8G2_DIR} sparse-checkout set
+                        --no-cone ${U8G2_PATTERNS}
+                RESULT_VARIABLE rc)
+        endif()
+        if(rc EQUAL 0)
+            execute_process(
+                COMMAND ${GIT_EXECUTABLE} -C ${U8G2_DIR} checkout --quiet
+                RESULT_VARIABLE rc)
+        endif()
+        if(NOT rc EQUAL 0)
+            file(REMOVE_RECURSE ${U8G2_DIR})
+            message(FATAL_ERROR "Could not fetch u8g2 ${U8G2_GIT_TAG} from "
+                "${U8G2_GIT_URL} (git 2.35+ needed for a sparse clone). "
+                "Set U8G2_SOURCE_DIR to a local u8g2 checkout instead.")
+        endif()
+        file(TOUCH ${U8G2_STAMP})
+    endif()
+endif()
+
+set(U8G2_SOURCES)
+foreach(f ${U8G2_FILES})
+    list(APPEND U8G2_SOURCES ${U8G2_DIR}/csrc/${f})
+endforeach()
 add_library(u8g2 STATIC ${U8G2_SOURCES})
-target_include_directories(u8g2 PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/u8g2/csrc)
+target_include_directories(u8g2 PUBLIC ${U8G2_DIR}/csrc)
 target_link_libraries(u8g2 PRIVATE pico_platform)
 target_compile_options(u8g2 PRIVATE -ffunction-sections -fdata-sections)
 
