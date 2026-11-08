@@ -54,7 +54,11 @@ fi
 mkdir -p "$OUT/licenses"
 U8G2_DIR=$(sed -n 's/^U8G2_SOURCE_DIR:PATH=//p' build/prod/CMakeCache.txt)
 cp "${U8G2_DIR:-build/prod/_deps/u8g2}/LICENSE" "$OUT/licenses/u8g2.txt"
-cp "$PICO_SDK_PATH/LICENSE.TXT" "$OUT/licenses/pico-sdk.txt"
+if [ -f "$PICO_SDK_PATH/LICENSE.TXT" ]; then
+   cp "$PICO_SDK_PATH/LICENSE.TXT" "$OUT/licenses/pico-sdk.txt"
+elif [ -f "/usr/share/licenses/pico-sdk/LICENSE.TXT" ]; then
+   cp /usr/share/licenses/pico-sdk/LICENSE.TXT "$OUT/licenses/pico-sdk.txt"
+fi
 cp "$PICO_SDK_PATH/lib/tinyusb/LICENSE" "$OUT/licenses/tinyusb.txt"
 sed -n '1,/\*\//p' src/fatfs/ff.c > "$OUT/licenses/fatfs.txt"
 
