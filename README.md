@@ -49,7 +49,7 @@ Physical RP2350 GPIO numbers, on a Raspberry Pi Pico 2.
 | 1  | 2  | FF OSD: Amiga KB_CLOCK in | |
 | 2  | 4  | DSKCHG / HDEN out ("pin02") | 2 |
 | 3  | 5  | INDEX out | 8 |
-| 4  | 6  | SEL0 in | 12 |
+| 4  | 6  | Drive select in (see below) | 10 or 12 |
 | 5  | 7  | MOTOR in | 16 |
 | 6  | 9  | DIR in | 18 |
 | 7  | 10 | STEP in | 20 |
@@ -76,6 +76,12 @@ Physical RP2350 GPIO numbers, on a Raspberry Pi Pico 2.
 The odd-numbered floppy bus pins are all ground. For bus pins 16 to 34,
 `bus = GPIO * 2 + 6`, so a 34-way header can be wired straight across.
 
+**Drive select** (GPIO 4) goes to **one** bus pin, like the S0/S1 jumper
+on a Gotek: **pin 10** (unit 0, S0) for the Amiga and the Atari ST, **pin
+12** (S1) for IBM PCs, where the cable decides the drive letter (A: after
+the twist, B: on the straight connector). The firmware is the same either
+way.
+
 Power: the floppy ribbon carries no power. Feed **+5V from the drive power
 connector** (Berg or Molex) to **VSYS** (pin 39) through a Schottky diode,
 so that USB can stay connected for the console. Power the Pico from the
@@ -89,6 +95,14 @@ shifter) takes its VCC from VSYS.
 Not fitted on this platform: speaker, JC jumper, UART console. Their pins
 went to the on-screen display. The interface defaults to Shugart; set
 `interface` in `FF.CFG` for the others.
+
+## Amiga
+
+Wire drive select to **bus pin 10** (unit 0: the Amiga's internal DF0).
+The default `FF.CFG` settings suit the Amiga: `interface = shugart`,
+`pin02 = auto`, `pin34 = auto`, `chgrst = step`. Use `.adf` images; for
+the HxC on-screen file selector, copy `HxC_Compat_Mode/Amiga/AUTOBOOT.HFE`
+(in the release zip) to the root of the SD card.
 
 ## FF OSD on an Amiga
 
